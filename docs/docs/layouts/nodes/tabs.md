@@ -17,6 +17,7 @@ A `:tabs` node is a standard tab system with customizable nibs (these are also s
     :inactive-bg nil # color, optional
     :bg nil # color, optional
     :bottom false # boolean, optional
+    :hide-bar false # boolean, optional
     :tabs @[] # list of tabs
 }
 
@@ -39,6 +40,10 @@ This is the background [color](/api.md#color) for the tab bar.
 `:bottom`
 
 If `true`, the tab bar will be on the bottom of the node instead of the top.
+
+`:hide-bar`
+
+If `true`, the tab nib row is not rendered and the active tab gets the full height of the node. Useful when the active tab is shown elsewhere, such as in a `:bar` node.
 
 ### The `:tabs` property
 

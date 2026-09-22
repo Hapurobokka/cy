@@ -48,6 +48,14 @@ type Context struct {
 	context interface{}
 }
 
+// Cacheable is implemented by Screens that cache the results of the dynamic
+// properties in their configuration. It lets a caller drop those caches when
+// state that the properties depend on changes without the layout itself
+// changing, so that the values are recalculated on the next render.
+type Cacheable interface {
+	ClearCache()
+}
+
 func (c *Context) SetContext(context interface{}) {
 	c.context = context
 }

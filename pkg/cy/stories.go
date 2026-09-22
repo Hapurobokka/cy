@@ -775,6 +775,25 @@ func init() {
 		return screen, err
 	}, stories.Config{})
 
+	stories.Register("layout/tabs/hide-bar", func(ctx context.Context) (
+		mux.Screen,
+		error,
+	) {
+		_, client, screen, err := createStory(ctx)
+		if err != nil {
+			return nil, err
+		}
+		err = client.execute(`
+(def cmd1 (shell/new))
+(layout/set (layout/new
+  (tabs
+    @[(tab "one" (view))
+      (active-tab "two" (attach :id cmd1))]
+    :hide-bar true)))
+		`)
+		return screen, err
+	}, stories.Config{})
+
 	stories.Register("layout/tabs/many", func(ctx context.Context) (
 		mux.Screen,
 		error,

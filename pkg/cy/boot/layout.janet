@@ -163,6 +163,7 @@ For example:
    inactive-bg
    bg
    bottom
+   hide-bar
    meta]
   {:type :tabs
    :tabs tabs
@@ -172,6 +173,7 @@ For example:
    :inactive-bg inactive-bg
    :bg bg
    :bottom bottom
+   :hide-bar hide-bar
    :meta meta})
 
 (defn

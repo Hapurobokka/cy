@@ -33,8 +33,12 @@ type TabsNode struct {
 	InactiveFg, InactiveBg *prop.Color
 	Bg                     *prop.Color
 	Bottom                 bool
-	Tabs                   []Tab
-	Meta                   *janet.Value
+	// HideBar suppresses the tab nib row entirely, leaving the full height
+	// to the active tab. Useful when tabs are surfaced elsewhere (e.g. a
+	// :bar node).
+	HideBar bool
+	Tabs    []Tab
+	Meta    *janet.Value
 }
 
 var _ Node = (*TabsNode)(nil)
@@ -143,6 +147,7 @@ func (n *TabsNode) MarshalJanet() interface{} {
 		InactiveFg, InactiveBg *prop.Color
 		Bg                     *prop.Color
 		Bottom                 bool
+		HideBar                bool
 		Tabs                   []tabArg
 		Meta                   *janet.Value
 	}{
@@ -153,6 +158,7 @@ func (n *TabsNode) MarshalJanet() interface{} {
 		InactiveBg: n.InactiveBg,
 		Bg:         n.Bg,
 		Bottom:     n.Bottom,
+		HideBar:    n.HideBar,
 		Meta:       n.Meta,
 	}
 
@@ -181,6 +187,7 @@ func (n *TabsNode) UnmarshalJanet(value *janet.Value) (Node, error) {
 		InactiveFg, InactiveBg *prop.Color
 		Bg                     *prop.Color
 		Bottom                 *bool
+		HideBar                *bool
 		Tabs                   []tabArg
 		Meta                   *janet.Value
 	}
@@ -201,6 +208,10 @@ func (n *TabsNode) UnmarshalJanet(value *janet.Value) (Node, error) {
 
 	if args.Bottom != nil {
 		type_.Bottom = *args.Bottom
+	}
+
+	if args.HideBar != nil {
+		type_.HideBar = *args.HideBar
 	}
 
 	for i, tab := range args.Tabs {
@@ -319,115 +330,118 @@ func (t *Tabs) State() *tty.State {
 	t.RUnlock()
 	state := tty.New(size)
 
-	activeFg := lipgloss.Color("0")
-	if value, ok := config.ActiveFg.GetPreset(); ok {
-		activeFg = value.Color
-	}
+	// Only needed for the nib row; skip it entirely when hidden.
+	if !config.HideBar {
+		activeFg := lipgloss.Color("0")
+		if value, ok := config.ActiveFg.GetPreset(); ok {
+			activeFg = value.Color
+		}
 
-	activeBg := lipgloss.Color("4")
-	if value, ok := config.ActiveBg.GetPreset(); ok {
-		activeBg = value.Color
-	}
+		activeBg := lipgloss.Color("4")
+		if value, ok := config.ActiveBg.GetPreset(); ok {
+			activeBg = value.Color
+		}
 
-	tabStyle := t.render.NewStyle().
-		Padding(0, 1)
+		tabStyle := t.render.NewStyle().
+			Padding(0, 1)
 
-	active := tabStyle.
-		Foreground(activeFg).
-		Background(activeBg)
+		active := tabStyle.
+			Foreground(activeFg).
+			Background(activeBg)
 
-	inactiveFg := lipgloss.Color("0")
-	if value, ok := config.InactiveFg.GetPreset(); ok {
-		inactiveFg = value.Color
-	}
+		inactiveFg := lipgloss.Color("0")
+		if value, ok := config.InactiveFg.GetPreset(); ok {
+			inactiveFg = value.Color
+		}
 
-	inactiveBg := lipgloss.Color("7")
-	if value, ok := config.InactiveBg.GetPreset(); ok {
-		inactiveBg = value.Color
-	}
+		inactiveBg := lipgloss.Color("7")
+		if value, ok := config.InactiveBg.GetPreset(); ok {
+			inactiveBg = value.Color
+		}
 
-	inactive := tabStyle.
-		Foreground(inactiveFg).
-		Background(inactiveBg)
+		inactive := tabStyle.
+			Foreground(inactiveFg).
+			Background(inactiveBg)
 
-	var tabBarBg *style.Color
-	if value, ok := config.Bg.GetPreset(); ok {
-		tabBarBg = value
-	}
+		var tabBarBg *style.Color
+		if value, ok := config.Bg.GetPreset(); ok {
+			tabBarBg = value
+		}
 
-	tabBarStyle := style.NewStyle(nil, tabBarBg)
+		tabBarStyle := style.NewStyle(nil, tabBarBg)
 
-	var barWidth, activeLoc, activeWidth int
-	var tabs []image.Image
-	for index, tab := range config.Tabs {
-		name := tab.Name
-		cols := lipgloss.Width(name)
+		var barWidth, activeLoc, activeWidth int
+		var tabs []image.Image
+		for index, tab := range config.Tabs {
+			name := tab.Name
+			cols := lipgloss.Width(name)
 
-		// If the given name contains ANSI escape sequences, we don't
-		// use the provided fg/bg colors and just render the name
-		// directly.
-		if len(name) == cols {
-			if tab.Active {
-				name = active.Render(tab.Name)
-			} else {
-				name = inactive.Render(tab.Name)
+			// If the given name contains ANSI escape sequences, we don't
+			// use the provided fg/bg colors and just render the name
+			// directly.
+			if len(name) == cols {
+				if tab.Active {
+					name = active.Render(tab.Name)
+				} else {
+					name = inactive.Render(tab.Name)
+				}
+				cols = lipgloss.Width(name)
 			}
-			cols = lipgloss.Width(name)
+
+			i := image.New(geom.Vec2{
+				R: 1,
+				C: cols,
+			})
+			t.render.RenderAt(
+				i,
+				0, 0,
+				name,
+			)
+
+			// Save the tab index somewhere for click hitscan
+			for col := 0; col < cols; col++ {
+				i[0][col].Write = emu.WriteID(index)
+			}
+
+			tabs = append(tabs, i)
+
+			if tab.Active {
+				activeLoc = barWidth
+				activeWidth = cols
+			}
+
+			barWidth += cols
 		}
 
-		i := image.New(geom.Vec2{
+		for col := 0; col < size.C; col++ {
+			tabBarStyle.Apply(&state.Image[bar.Position.R][col])
+		}
+
+		// Render the tab bar into one long line so we can shift it
+		// appropriately when the active tab is not on the screen
+		renderedBar := image.New(geom.Vec2{
 			R: 1,
-			C: cols,
+			C: barWidth,
 		})
-		t.render.RenderAt(
-			i,
-			0, 0,
-			name,
+		var col int
+		for _, tab := range tabs {
+			image.Copy(geom.Vec2{C: col}, renderedBar, tab)
+			col += tab.Size().C
+		}
+
+		barOffset := geom.Clamp(
+			activeLoc+(activeWidth/2)-(size.C/2),
+			0,
+			geom.Max(0, barWidth-size.C),
 		)
+		renderedBar[0] = renderedBar[0][barOffset:]
+		image.Copy(bar.Position, state.Image, renderedBar)
 
-		// Save the tab index somewhere for click hitscan
-		for col := 0; col < cols; col++ {
-			i[0][col].Write = emu.WriteID(index)
-		}
-
-		tabs = append(tabs, i)
-
-		if tab.Active {
-			activeLoc = barWidth
-			activeWidth = cols
-		}
-
-		barWidth += cols
+		// Save this for hit detection
+		t.Lock()
+		t.lastBar = renderedBar
+		t.Unlock()
 	}
-
-	for col := 0; col < size.C; col++ {
-		tabBarStyle.Apply(&state.Image[bar.Position.R][col])
-	}
-
-	// Render the tab bar into one long line so we can shift it
-	// appropriately when the active tab is not on the screen
-	renderedBar := image.New(geom.Vec2{
-		R: 1,
-		C: barWidth,
-	})
-	var col int
-	for _, tab := range tabs {
-		image.Copy(geom.Vec2{C: col}, renderedBar, tab)
-		col += tab.Size().C
-	}
-
-	barOffset := geom.Clamp(
-		activeLoc+(activeWidth/2)-(size.C/2),
-		0,
-		geom.Max(0, barWidth-size.C),
-	)
-	renderedBar[0] = renderedBar[0][barOffset:]
-	image.Copy(bar.Position, state.Image, renderedBar)
-
-	// Save this for hit detection
-	t.Lock()
-	t.lastBar = renderedBar
-	t.Unlock()
 
 	screenState := screen.State()
 	// We want to preserve transparency
@@ -561,6 +575,16 @@ func (t *Tabs) Resize(size geom.Size) error {
 	defer t.Unlock()
 
 	t.size = size
+
+	if t.config != nil && t.config.HideBar {
+		t.inner = geom.Rect{Size: size}
+		// Zero rect: Contains is then false for every point, which keeps the
+		// click-hit path in Send() below short-circuiting before it touches
+		// the (now nil) lastBar.
+		t.bar = geom.Rect{}
+		return t.screen.Resize(t.inner.Size)
+	}
+
 	t.inner = geom.Rect{
 		Size: geom.Vec2{
 			R: geom.Max(0, size.R-1),

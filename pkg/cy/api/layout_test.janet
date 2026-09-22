@@ -87,6 +87,20 @@
   # single valid tab should pass
   (layout/set (layout/new (tabs @[(active-tab "single" (attach))]))))
 
+(test "tabs :hide-bar"
+  # The flag round-trips through layout/set -> layout/get
+  (layout/set
+    (layout/new
+      (tabs @[(active-tab "pane" (attach))]
+            :hide-bar true)))
+  (def {:hide-bar hide-bar} (layout/get))
+  (assert hide-bar)
+
+  # It defaults to false when omitted
+  (layout/set (layout/new (tabs @[(active-tab "pane" (attach))])))
+  (def {:hide-bar hidden} (layout/get))
+  (assert (not hidden)))
+
 (test "split validation"
   # split with both children attached
   (expect-error (layout/set
