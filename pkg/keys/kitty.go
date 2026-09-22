@@ -26,6 +26,11 @@ const (
 	KittyKeyTab       = 9
 	KittyKeyBackspace = 127
 
+	// Keys the protocol encodes with their own codes in the private use
+	// area start here. Anything at or above this that we do not recognise
+	// is a functional key, never text.
+	KittyPUAStart = 0xE000
+
 	// There are a bunch of keys that have irregular encodings; we use our
 	// own internal codes for these
 	/////////////////////////////////////////////////////////////////////
@@ -149,6 +154,9 @@ const (
 	KittyRightSuper   = 57450
 	KittyRightHyper   = 57451
 	KittyRightMeta    = 57452
+	// AltGr and AltGr+Shift
+	KittyIsoLevel3Shift = 57453
+	KittyIsoLevel5Shift = 57454
 )
 
 func invertMap[S comparable, T comparable](in map[S]T) (out map[T]S) {
@@ -220,7 +228,11 @@ func parseModifier(modifier, type_ int, key *Key) {
 		modifier = 255
 	}
 
-	key.Mod = KeyModifiers(modifier)
+	// cy does not model lock state. The terminal only reports it because
+	// we ask for the report-all-keys enhancement, and it has no legacy
+	// encoding: leaving it in makes every key miss its legacy encoding when
+	// Num Lock or Caps Lock is on, and hands panes a phantom modifier.
+	key.Mod = KeyModifiers(modifier) &^ (KeyModCapsLock | KeyModNumLock)
 
 	if type_ == 0 {
 		type_ = 1
@@ -410,67 +422,63 @@ func kittyEncode(
 	haveText bool,
 ) []byte {
 	var (
-		parts  = []string{}
-		code   = k.Code
-		suffix = "u"
+		keyField = runeToCodepoint(k.Code)
+		suffix   = "u"
+		// The letter form is the only one whose number may be omitted, and
+		// only when there is nothing else to report.
+		optionalNumber = false
 	)
 
-	if letter, ok := invertLegacyLetter[code]; ok {
-		code = 1
+	if letter, ok := invertLegacyLetter[k.Code]; ok {
+		keyField = "1"
+		optionalNumber = true
 		suffix = letter
-	} else if number, ok := invertLegacyNumber[code]; ok {
-		code = rune(number)
+	} else if number, ok := invertLegacyNumber[k.Code]; ok {
+		keyField = runeToCodepoint(rune(number))
 		suffix = "~"
-	}
-
-	codePoints := runeToCodepoint(code)
-	if code == 1 {
-		codePoints = ""
 	} else if haveAlt && (k.Base != 0 || k.Shifted != 0) {
-		codePoints = colonSeparate(
+		keyField = colonSeparate(
 			omitTrailing(
 				rune(0),
-				code,
+				k.Code,
 				k.Shifted,
 				k.Base,
 			)...,
 		)
 	}
 
-	parts = append(parts, codePoints)
-
+	modField := ""
 	if haveTypes {
-		if k.Mod == 0 && k.Type == 0 {
-			// If there's no text coming after this, don't add a
-			// blank
-			if haveText {
-				parts = append(parts, "")
-			}
-		} else {
-			parts = append(parts, colonSeparate(
+		if k.Mod != 0 || k.Type != 0 {
+			modField = colonSeparate(
 				omitTrailing(
 					rune(1),
 					rune(k.Mod+1),
 					rune(k.Type+1),
 				)...,
-			))
+			)
 		}
 	} else if k.Mod != 0 {
-		parts = append(parts, runeToCodepoint(
-			rune(k.Mod+1),
-		))
+		modField = runeToCodepoint(rune(k.Mod + 1))
 	}
 
-	if haveText {
-		// Modifier wasn't reported, but we're reporting text, so this
-		// needs to be blank
-		if len(parts) == 1 {
-			parts = append(parts, "")
-		}
+	textField := ""
+	if haveText && len(k.Text) > 0 {
+		textField = colonSeparate([]rune(k.Text)...)
+	}
 
-		parts = append(parts, colonSeparate(
-			[]rune(k.Text)...,
-		))
+	// The fields are key ; modifiers[:type] ; text, and an empty modifier
+	// field has to be kept when text follows it.
+	parts := []string{keyField}
+	if modField != "" || textField != "" {
+		parts = append(parts, modField)
+	}
+	if textField != "" {
+		parts = append(parts, textField)
+	}
+
+	if optionalNumber && len(parts) == 1 {
+		parts = []string{}
 	}
 
 	return fmt.Appendf(
@@ -492,9 +500,9 @@ func doesNotGenerateText(k Key) bool {
 }
 
 // isModifierKey returns true if the key code represents a modifier-only key
-// (e.g., Shift, Ctrl, Alt pressed alone).
+// (e.g., Shift, Ctrl, Alt or AltGr pressed alone).
 func isModifierKey(code rune) bool {
-	return code >= KittyLeftShift && code <= KittyRightMeta
+	return code >= KittyLeftShift && code <= KittyIsoLevel5Shift
 }
 
 // kittyBytes generates the Kitty protocol sequence for this key

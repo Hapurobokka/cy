@@ -141,8 +141,10 @@ func (k Key) legacyBytes() (data []byte, ok bool) {
 		return []byte(sequence), true
 	}
 
-	// We can't encode anything above this, probably an internal key code
-	if k.Code >= KittyKeyHome && k.Code != KeyText {
+	// We can't encode anything at or above the private use area: those are
+	// functional keys, and an unmapped one must be dropped rather than
+	// printed as a rune.
+	if k.Code >= KittyPUAStart && k.Code != KeyText {
 		return
 	}
 
