@@ -32,6 +32,9 @@ type Client interface {
 	GetLayout() layout.Layout
 	Frame() *frames.Framer
 	Binds() []Binding
+	// Pending describes any key sequence the client has started typing
+	// and is waiting to have completed.
+	Pending() Pending
 	Toast(toasts.Toast)
 	Clipboard() clipboard.Clipboard
 }

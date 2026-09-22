@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cfoust/cy/pkg/bind/trie"
 	"github.com/cfoust/cy/pkg/taro"
 
 	"github.com/stretchr/testify/assert"
@@ -44,6 +45,40 @@ func TestAction(t *testing.T) {
 		Source:   scope,
 		Sequence: []string{"ctrl+a"},
 	}, event)
+}
+
+func TestPending(t *testing.T) {
+	engine := NewEngine[int]()
+	go engine.Poll(context.Background())
+
+	scope := NewScope[int](nil)
+	scope.Set([]interface{}{"ctrl+a", "n"}, 1)
+	scope.Set([]interface{}{"ctrl+a", "f"}, 2)
+	scope.Set([]interface{}{"ctrl+a", "p"}, 3)
+
+	re, err := trie.NewRegex("[a-z]")
+	assert.NoError(t, err)
+	scope.Set([]interface{}{"ctrl+a", re}, 4)
+
+	engine.SetScopes(scope)
+
+	keys, matches := engine.Pending()
+	assert.Empty(t, keys)
+	assert.Empty(t, matches)
+
+	sendKeys(engine, "ctrl+a")
+
+	keys, matches = engine.Pending()
+	assert.Equal(t, []string{"ctrl+a"}, keys)
+	// sorted and deduplicated; the regex step is shown as its pattern
+	assert.Equal(t, []string{"[a-z]", "f", "n", "p"}, matches)
+
+	// completing the sequence clears the pending state
+	sendKeys(engine, "n")
+
+	keys, matches = engine.Pending()
+	assert.Empty(t, keys)
+	assert.Empty(t, matches)
 }
 
 func TestSplitBracketedPaste(t *testing.T) {

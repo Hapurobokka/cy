@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/cfoust/cy/pkg/bind"
@@ -206,4 +207,31 @@ func (k *KeyModule) Current(context interface{}) ([]Binding, error) {
 	}
 
 	return client.Binds(), nil
+}
+
+// Pending describes a key sequence a client has started typing.
+type Pending struct {
+	// The keys entered so far.
+	Keys []string `janet:"keys"`
+	// The keys that could come next to complete a binding.
+	Matches []string `janet:"matches"`
+}
+
+// Pending returns the keys the current client has entered that are awaiting
+// further input, along with the keys that could complete a binding. Both are
+// empty when the client is not in the middle of a key sequence.
+func (k *KeyModule) Pending(context interface{}) (Pending, error) {
+	client, err := getClient(context)
+	if err != nil {
+		if errors.Is(err, ErrMissingClient) {
+			// Properties can be calculated outside of a client context
+			// (a story or a plain `cy exec`), in which case there is
+			// nothing pending.
+			return Pending{}, nil
+		}
+
+		return Pending{}, err
+	}
+
+	return client.Pending(), nil
 }

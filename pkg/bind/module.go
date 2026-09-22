@@ -3,6 +3,8 @@ package bind
 import (
 	"bytes"
 	"context"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/cfoust/cy/pkg/bind/trie"
@@ -63,6 +65,10 @@ type Engine[T any] struct {
 	// Holds the sequence of keys the user has entered
 	state []string
 
+	// The keys that could come next to complete a binding, for the
+	// partial sequence in state
+	matches []string
+
 	// Buffered bytes from an incomplete bracketed paste
 	pasteLeftover []byte
 }
@@ -97,16 +103,18 @@ func (e *Engine[T]) clearState() {
 
 	e.Lock()
 	e.state = make([]string, 0)
+	e.matches = make([]string, 0)
 	e.Unlock()
 
 	e.out <- PartialEvent[T]{}
 }
 
-func (e *Engine[T]) setState(ctx context.Context, state []string) {
+func (e *Engine[T]) setState(ctx context.Context, state, matches []string) {
 	e.clearTimeout()
 
 	e.Lock()
 	e.state = state
+	e.matches = matches
 	e.keyTimeout = util.NewLifetime(ctx)
 	e.Unlock()
 
@@ -125,6 +133,50 @@ func (e *Engine[T]) getState() []string {
 	e.RLock()
 	defer e.RUnlock()
 	return e.state
+}
+
+// Pending returns the keys the user has entered that are awaiting further
+// input, along with the keys that could come next to complete a binding. Both
+// are empty unless the engine is waiting for the user to finish a sequence.
+func (e *Engine[T]) Pending() (keys, matches []string) {
+	e.RLock()
+	defer e.RUnlock()
+
+	keys = append([]string{}, e.state...)
+	matches = append([]string{}, e.matches...)
+	return
+}
+
+// nextKeys returns the keys that could complete one of the given partial
+// matches. The paths of partial matches are relative to the prefix that was
+// already entered, so the next key is always the first path element. The
+// result is deduplicated and sorted: leaves are gathered from maps in the
+// trie, so their order is not stable on its own.
+func nextKeys[T any](matches []Match[T]) []string {
+	seen := make(map[string]struct{}, len(matches))
+	keys := make([]string, 0, len(matches))
+
+	for _, match := range matches {
+		path := match.Bind.Path
+		if len(path) == 0 {
+			continue
+		}
+
+		key := path[0]
+		if pattern, ok := strings.CutPrefix(key, trie.RegexPrefix); ok {
+			key = pattern
+		}
+
+		if _, ok := seen[key]; ok {
+			continue
+		}
+
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+
+	sort.Strings(keys)
+	return keys
 }
 
 func (e *Engine[T]) processKey(ctx context.Context, in input) (consumed bool) {
@@ -189,11 +241,14 @@ func (e *Engine[T]) processKey(ctx context.Context, in input) (consumed bool) {
 
 	if len(matches) > 0 {
 		consumed = true
+		// The state is stored before the event is emitted so that anything
+		// rendering in response to the partial sequence (like a status bar)
+		// observes it.
+		e.setState(ctx, sequence, nextKeys(matches))
 		e.out <- PartialEvent[T]{
 			Prefix:  sequence,
 			Matches: matches,
 		}
-		e.setState(ctx, sequence)
 		return
 	}
 

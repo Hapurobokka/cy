@@ -45,3 +45,20 @@ Get all of `target`'s bindings. `target` is a [NodeID](/api.md#nodeid), `:time`,
 (key/current)
 
 Get all of the bindings accessible to the current client as an array of [Binding](/api.md#binding)s. It contains all of the bindings defined by the node to which the client is attached and its ancestors. In other words, this is equivalent to the list of bindings against which the client's key presses are compared.
+
+# doc: Pending
+
+(key/pending)
+
+Get the key sequence the current client has started typing but has not yet completed, along with the keys that could come next. Returns a struct with the fields `:keys` (the keys entered so far) and `:matches` (the keys that would complete one of the pending bindings). Both are empty when the client is not waiting for input.
+
+This is useful for status lines that indicate when `cy` is waiting for the rest of a keybinding:
+
+```janet
+(defn bar-text
+  [[rows cols] layout]
+  (def pending (key/pending))
+  (if (empty? (pending :matches))
+    "cy"
+    (string/join (pending :matches) " ")))
+```

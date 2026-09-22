@@ -4,6 +4,9 @@ import (
 	"regexp"
 )
 
+// RegexPrefix is how a regex step is represented in a Leaf's Path.
+const RegexPrefix = "re:"
+
 type Regex struct {
 	Pattern  string
 	compiled *regexp.Regexp

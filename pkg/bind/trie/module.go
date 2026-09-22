@@ -1,8 +1,6 @@
 package trie
 
 import (
-	"fmt"
-
 	"github.com/sasha-s/go-deadlock"
 )
 
@@ -119,7 +117,7 @@ func (t *Trie[T]) Leaves() (leaves []Leaf[T]) {
 
 	for _, re := range t.nextRe {
 		locations = append(locations, location{
-			Key:  fmt.Sprintf("re:%s", re.Pattern),
+			Key:  RegexPrefix + re.Pattern,
 			Next: re.next,
 		})
 	}
