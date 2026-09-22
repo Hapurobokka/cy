@@ -113,7 +113,7 @@ func TestSplitBracketedPaste(t *testing.T) {
 	assert.Equal(t, "hello world", msg.Text)
 }
 
-func TestIdle(t *testing.T) {
+func TestPendingDoesNotExpire(t *testing.T) {
 	engine := NewEngine[int]()
 
 	go engine.Poll(context.Background())
@@ -141,7 +141,9 @@ func TestIdle(t *testing.T) {
 		"ctrl+a",
 	}, engine.getState())
 
+	// Pending sequences used to expire after one second. They should now
+	// remain active until another key completes or cancels the sequence.
 	time.Sleep(time.Second + 50*time.Millisecond)
 
-	assert.Equal(t, engine.getState(), []string{})
+	assert.Equal(t, []string{"ctrl+a"}, engine.getState())
 }

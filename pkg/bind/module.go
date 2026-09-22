@@ -5,13 +5,11 @@ import (
 	"context"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/cfoust/cy/pkg/bind/trie"
 	"github.com/cfoust/cy/pkg/emu"
 	"github.com/cfoust/cy/pkg/keys"
 	"github.com/cfoust/cy/pkg/taro"
-	"github.com/cfoust/cy/pkg/util"
 
 	"github.com/sasha-s/go-deadlock"
 )
@@ -59,9 +57,6 @@ type Engine[T any] struct {
 
 	scopes []*trie.Trie[T]
 
-	// Track the timeout for a user to enter another key
-	keyTimeout util.Lifetime
-
 	// Holds the sequence of keys the user has entered
 	state []string
 
@@ -75,9 +70,8 @@ type Engine[T any] struct {
 
 func NewEngine[T any]() *Engine[T] {
 	return &Engine[T]{
-		in:         make(chan input),
-		out:        make(chan Event, 100),
-		keyTimeout: util.NewLifetime(context.Background()),
+		in:  make(chan input),
+		out: make(chan Event, 100),
 	}
 }
 
@@ -92,15 +86,7 @@ func (e *Engine[T]) Recv() <-chan Event {
 	return e.out
 }
 
-func (e *Engine[T]) clearTimeout() {
-	if !e.keyTimeout.IsDone() {
-		e.keyTimeout.Cancel()
-	}
-}
-
 func (e *Engine[T]) clearState() {
-	e.clearTimeout()
-
 	e.Lock()
 	e.state = make([]string, 0)
 	e.matches = make([]string, 0)
@@ -109,24 +95,11 @@ func (e *Engine[T]) clearState() {
 	e.out <- PartialEvent[T]{}
 }
 
-func (e *Engine[T]) setState(ctx context.Context, state, matches []string) {
-	e.clearTimeout()
-
+func (e *Engine[T]) setState(state, matches []string) {
 	e.Lock()
 	e.state = state
 	e.matches = matches
-	e.keyTimeout = util.NewLifetime(ctx)
 	e.Unlock()
-
-	go func() {
-		timer := time.NewTimer(1 * time.Second)
-		select {
-		case <-timer.C:
-			e.clearState()
-		case <-e.keyTimeout.Ctx().Done():
-			return
-		}
-	}()
 }
 
 func (e *Engine[T]) getState() []string {
@@ -244,7 +217,7 @@ func (e *Engine[T]) processKey(ctx context.Context, in input) (consumed bool) {
 		// The state is stored before the event is emitted so that anything
 		// rendering in response to the partial sequence (like a status bar)
 		// observes it.
-		e.setState(ctx, sequence, nextKeys(matches))
+		e.setState(sequence, nextKeys(matches))
 		e.out <- PartialEvent[T]{
 			Prefix:  sequence,
 			Matches: matches,
