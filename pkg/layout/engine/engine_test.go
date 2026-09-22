@@ -54,6 +54,10 @@ func (c *capScreen) Resize(size geom.Size) error {
 
 func (c *capScreen) Kill() {}
 
+func (c *capScreen) Apply(L.Node) (bool, error) {
+	return false, nil
+}
+
 func (c *capScreen) Send(msg mux.Msg) {
 	c.Lock()
 	defer c.Unlock()
@@ -648,4 +652,68 @@ func TestMouseForwardAllRows(t *testing.T) {
 		}
 		l.Kill()
 	})
+}
+
+// cacheScreen is a Screen that records whether its properties were invalidated.
+type cacheScreen struct {
+	capScreen
+	cleared bool
+}
+
+var _ L.Cacheable = (*cacheScreen)(nil)
+
+func (c *cacheScreen) ClearCache() {
+	c.Lock()
+	c.cleared = true
+	c.Unlock()
+}
+
+func (c *cacheScreen) wasCleared() bool {
+	c.Lock()
+	defer c.Unlock()
+	return c.cleared
+}
+
+func TestInvalidateClearsCaches(t *testing.T) {
+	rootScreen := &cacheScreen{}
+	childScreen := newCapScreen()
+	nestedScreen := &cacheScreen{}
+
+	root := &screenNode{Screen: rootScreen}
+	child := &screenNode{Screen: childScreen}
+	root.Children = []*screenNode{child}
+	child.Children = []*screenNode{
+		{Screen: nestedScreen},
+	}
+
+	clearCaches(root)
+
+	require.True(t, rootScreen.wasCleared())
+	require.True(t, nestedScreen.wasCleared())
+
+	// screens that do not cache anything are simply skipped
+	clearCaches(nil)
+}
+
+func TestInvalidateNotifies(t *testing.T) {
+	l := New(
+		context.Background(),
+		T.NewTree(),
+		server.New(),
+	)
+
+	err := l.Set(L.New(&L.ViewNode{Attached: true}))
+	require.NoError(t, err)
+
+	updates := l.Subscribe(context.Background())
+
+	// The renderer only redraws when the layout publishes, so Invalidate has
+	// to do more than drop caches.
+	l.Invalidate()
+
+	select {
+	case <-updates.Recv():
+	case <-time.After(time.Second):
+		t.Fatal("Invalidate did not publish an update")
+	}
 }

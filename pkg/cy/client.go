@@ -222,6 +222,15 @@ func (c *Client) pollEvents() {
 				continue
 			}
 
+			// A partial key sequence means cy is waiting for more input,
+			// which dynamic layout properties (like a status bar) can show.
+			// The state behind it is not part of the layout, so the caches
+			// have to be dropped and a redraw requested before the render
+			// below (a consumed key produces no screen output of its own).
+			if _, ok := event.(bind.PartialEvent[bind.Action]); ok {
+				c.layoutEngine.Invalidate()
+			}
+
 			// We only consider key presses to be an interaction
 			// We don't want mouse motion to trigger this
 			if _, ok := event.(taro.KittyKeyMsg); ok {
@@ -589,6 +598,14 @@ func (c *Client) Binds() (binds []api.Binding) {
 		}
 	}
 	return
+}
+
+func (c *Client) Pending() api.Pending {
+	keys, matches := c.binds.Pending()
+	return api.Pending{
+		Keys:    keys,
+		Matches: matches,
+	}
 }
 
 func (c *Client) Detach() {

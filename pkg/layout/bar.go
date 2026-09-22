@@ -143,6 +143,7 @@ type Bar struct {
 
 var _ mux.Screen = (*Bar)(nil)
 var _ Reusable = (*Bar)(nil)
+var _ Cacheable = (*Bar)(nil)
 
 func (t *Bar) Kill() {
 	t.screen.Kill()
@@ -214,6 +215,16 @@ func (b *Bar) Apply(node Node) (bool, error) {
 	config.Text.SetLogger(b.Logger)
 
 	return true, nil
+}
+
+// ClearCache drops the cached value of the bar's text property, so that it is
+// recalculated on the next render. The bar is the node users put live state
+// in, and that state can change without the layout changing.
+func (b *Bar) ClearCache() {
+	b.Lock()
+	defer b.Unlock()
+
+	b.config.Text.ClearCache()
 }
 
 func (b *Bar) Send(msg mux.Msg) {

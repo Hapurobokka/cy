@@ -227,6 +227,37 @@ func (l *LayoutEngine) removeAttached() error {
 	return l.set(L.RemoveAttached(l.layout.Clone()))
 }
 
+// Invalidate drops any cached properties in the layout and asks for a redraw,
+// so that they are recalculated on the next render. This is for state that
+// dynamic properties can read but that is not part of the layout itself, such
+// as the keys of a partial keybinding: the renderer only redraws when a screen
+// publishes an update, and a consumed key produces no output to publish.
+func (l *LayoutEngine) Invalidate() {
+	l.RLock()
+	existing := l.existing
+	l.RUnlock()
+
+	clearCaches(existing)
+
+	// Notify is called outside the lock: it publishes to the layers, one of
+	// which will call back into State().
+	l.Notify()
+}
+
+func clearCaches(node *screenNode) {
+	if node == nil {
+		return
+	}
+
+	for _, child := range node.Children {
+		clearCaches(child)
+	}
+
+	if cacheable, ok := node.Screen.(L.Cacheable); ok {
+		cacheable.ClearCache()
+	}
+}
+
 func (l *LayoutEngine) set(layout L.Node) error {
 	node, err := l.updateNode(
 		l.Ctx(),
